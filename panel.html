@@ -1,0 +1,744 @@
+<?php
+/**
+ * gorgor_sidebar.php
+ *
+ * Sidebar-only PHP component for Gorgor Admin.
+ * - Preserves the original UI and color theme
+ * - Sidebar can collapse/expand; when collapsed only icons are visible
+ * - State is stored in localStorage (client-side)
+ * - Adds a placeholder include 'drill.php' at the top (per user's request)
+ *
+ * Usage:
+ *   <?php
+ *   $gorgor_active = 'dashboard'; // one of: dashboard, analytics, users, products, messages, settings, campaigns, reports, promotions
+ *   $gorgor_badges = [
+ *       'messages' => 5,
+ *       'notifications' => 3
+ *   ];
+ *   include 'gorgor_sidebar.php';
+ *   ?>
+ *
+ * Note: Adjust $gorgor_active / $gorgor_badges before include to highlight items or show counts.
+ */
+
+// --- Insert the 'drill' include as requested by the user workflow. ---
+if (file_exists(__DIR__ . '/drill.php')) {
+    include_once __DIR__ . '/drill.php';
+} else {
+    // If drill.php not present, leave a small comment for the dev.
+    // You purposely requested drill to be included in every front-end file.
+    // If you want to avoid the warning, create drill.php in the same folder.
+}
+
+// ------------------------ Server-side variables (defaults) ------------------------
+if (!isset($gorgor_active)) {
+    $gorgor_active = 'dashboard';
+}
+if (!isset($gorgor_badges) || !is_array($gorgor_badges)) {
+    $gorgor_badges = [
+        'messages' => 5,
+        'notifications' => 3
+    ];
+}
+// -------------------------------------------------------------------------------
+
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Gorgor Sidebar</title>
+
+    <!-- FontAwesome for icons (kept as in original) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
+    <style>
+        /* ============================================================
+           GORGOR SIDEBAR — Styles
+           Preserved theme variables and UI colors from original file
+           Sidebar-only styles adapt main CSS so this file is modular
+           ============================================================ */
+
+        :root{
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --dark: #1e293b;
+            --darker: #0f172a;
+            --darkest: #020617;
+            --light: #f8fafc;
+            --gray: #94a3b8;
+            --gray-dark: #64748b;
+            --sidebar-width: 280px;
+            --sidebar-collapsed-width: 80px;
+            --header-height: 70px;
+            --transition-speed: 0.28s;
+        }
+
+        /* Reset for this component only */
+        .gorgor-sidebar *{
+            box-sizing: border-box;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+        }
+
+        /* Wrapper that holds sidebar + optional overlay */
+        .gorgor-sidebar-wrapper {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            color: var(--light);
+            height: 100vh;
+            width: 100%;
+            position: relative;
+            background: transparent;
+        }
+
+        /* Sidebar base */
+        .gorgor-sidebar {
+            width: var(--sidebar-width);
+            background: linear-gradient(180deg, var(--darkest) 0%, rgba(10,12,20,0.98) 100%);
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1000;
+            transition: width var(--transition-speed) ease, transform var(--transition-speed) ease;
+            box-shadow: 2px 0 18px rgba(0,0,0,0.4);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Collapsed modifier */
+        .gorgor-sidebar.collapsed {
+            width: var(--sidebar-collapsed-width);
+        }
+
+        /* Header inside sidebar */
+        .gorgor-sidebar .sidebar-header {
+            height: var(--header-height);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 0 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+
+        .gorgor-logo {
+            display:flex;
+            align-items:center;
+            gap:10px;
+            width:100%;
+        }
+
+        .gorgor-logo img {
+            height:36px;
+            width:auto;
+            display:block;
+            transition: transform var(--transition-speed);
+        }
+
+        .gorgor-logo .logo-text {
+            font-size:1.25rem;
+            font-weight:700;
+            background: linear-gradient(90deg, var(--primary), var(--info));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            transition: opacity var(--transition-speed), width var(--transition-speed);
+            white-space:nowrap;
+            overflow:hidden;
+        }
+
+        /* When collapsed hide the text */
+        .gorgor-sidebar.collapsed .gorgor-logo .logo-text {
+            opacity: 0;
+            width: 0;
+        }
+
+        /* Sidebar controls row (collapse/expand) */
+        .gorgor-sidebar .sidebar-controls {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:8px;
+            padding:10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
+        }
+
+        .collapse-btn {
+            display:flex;
+            align-items:center;
+            gap:8px;
+            cursor:pointer;
+            background:none;
+            border:0;
+            color:var(--gray);
+            padding:8px;
+            border-radius:8px;
+            transition: all 0.18s;
+            font-size:0.95rem;
+            width:100%;
+        }
+
+        .collapse-btn:hover { color: var(--light); background: rgba(255,255,255,0.02); }
+
+        .collapse-btn i { min-width: 20px; text-align:center; }
+
+        /* Menu area */
+        .gorgor-sidebar .sidebar-menu {
+            padding: 14px 0 40px;
+        }
+
+        .gorgor-sidebar .sidebar-title {
+            color: var(--gray);
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 0 18px 8px;
+            margin-top: 10px;
+        }
+
+        .gorgor-sidebar ul.sidebar-nav {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .gorgor-sidebar ul.sidebar-nav li {
+            display:block;
+        }
+
+        .gorgor-sidebar a.sidebar-link {
+            display:flex;
+            align-items:center;
+            gap:12px;
+            padding:12px 18px;
+            color: var(--gray);
+            text-decoration: none;
+            transition: background 0.15s, color 0.15s;
+            position:relative;
+            white-space:nowrap;
+        }
+
+        .gorgor-sidebar a.sidebar-link .icon {
+            font-size:1.05rem;
+            min-width:24px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+        }
+
+        .gorgor-sidebar a.sidebar-link .text {
+            transition: opacity var(--transition-speed), width var(--transition-speed);
+            display:inline-block;
+            overflow:hidden;
+        }
+
+        .gorgor-sidebar.collapsed a.sidebar-link .text {
+            opacity:0;
+            width:0;
+        }
+
+        .gorgor-sidebar a.sidebar-link:hover {
+            color: var(--light);
+            background: rgba(255,255,255,0.03);
+        }
+
+        .gorgor-sidebar a.sidebar-link.active {
+            color: var(--light);
+            background: rgba(99,102,241,0.08);
+        }
+        .gorgor-sidebar a.sidebar-link.active::before {
+            content: '';
+            position:absolute;
+            left:0;
+            top:0;
+            height:100%;
+            width:3px;
+            background:var(--primary);
+        }
+
+        /* Dropdown items inside sidebar */
+        .gorgor-sidebar .has-dropdown > a.sidebar-link {
+            justify-content:space-between;
+        }
+
+        .gorgor-sidebar .dropdown-list {
+            padding-left: 0;
+            max-height: 0;
+            overflow:hidden;
+            transition: max-height 0.25s ease;
+            list-style:none;
+        }
+
+        .gorgor-sidebar .has-dropdown.open .dropdown-list {
+            max-height: 600px; /* large enough to reveal children */
+        }
+
+        .gorgor-sidebar .dropdown-list a.sidebar-link {
+            padding-left: 36px;
+            font-size:0.95rem;
+        }
+
+        /* badges */
+        .gorgor-badge {
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            background:var(--danger);
+            color:white;
+            border-radius:12px;
+            padding:2px 8px;
+            font-size:0.7rem;
+            margin-left:auto;
+            min-width:22px;
+            height:22px;
+        }
+
+        /* footer small space */
+        .gorgor-sidebar .sidebar-footer {
+            margin-top: 20px;
+            padding: 12px 16px 40px;
+            font-size: 0.8rem;
+            color: var(--gray);
+            border-top: 1px solid rgba(255,255,255,0.02);
+        }
+
+        /* overlay for mobile */
+        .gorgor-sidebar-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 950;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.22s;
+        }
+
+        .gorgor-sidebar-overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 992px) {
+            .gorgor-sidebar {
+                transform: translateX(-100%);
+            }
+            .gorgor-sidebar.open {
+                transform: translateX(0);
+            }
+        }
+
+        /* A11y focus styles */
+        .gorgor-sidebar a.sidebar-link:focus, .collapse-btn:focus {
+            outline: 2px dashed rgba(99,102,241,0.25);
+            outline-offset: 2px;
+        }
+
+        /* small helper classes for icon-only text labels displayed as tooltip when collapsed */
+        .gorgor-tooltip {
+            position: absolute;
+            left: calc(var(--sidebar-collapsed-width) + 12px);
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.85);
+            color: #fff;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            white-space: nowrap;
+            display: none;
+            z-index: 2000;
+        }
+        .gorgor-sidebar.collapsed .gorgor-tooltip {
+            display: block;
+        }
+
+        /* ===========================
+           End component styles
+           =========================== */
+    </style>
+</head>
+<body>
+
+<div class="gorgor-sidebar-wrapper">
+
+    <!-- Sidebar -->
+    <aside id="gorgorSidebar" class="gorgor-sidebar <?php /* JS will toggle 'collapsed' or 'open' */ ?>">
+
+        <!-- Header -->
+        <div class="sidebar-header">
+            <div class="gorgor-logo">
+                <img src="Black Eagle Company Business Group Logo.png" alt="Gorgor Logo" onerror="this.style.opacity='.35';">
+                <span class="logo-text">Gorgor</span>
+            </div>
+        </div>
+
+        <!-- Controls (Collapse / Expand + Mobile open) -->
+        <div class="sidebar-controls">
+            <button id="collapseToggle" class="collapse-btn" aria-pressed="false" title="Collapse / Expand sidebar">
+                <i class="fa-solid fa-chevron-left" id="collapseIcon" aria-hidden="true"></i>
+                <span class="collapse-text">Collapse</span>
+            </button>
+
+            <button id="mobileClose" class="collapse-btn" style="justify-content:flex-end; display:none;" aria-hidden="true" title="Close sidebar on mobile">
+                <i class="fa-solid fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Menu -->
+        <nav class="sidebar-menu" aria-label="Main navigation">
+            <h3 class="sidebar-title">Navigation</h3>
+
+            <ul class="sidebar-nav" role="menu">
+                <li role="none">
+                    <a role="menuitem" href="dashboard.php" class="sidebar-link <?php echo ($gorgor_active === 'dashboard') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-home"></i></span>
+                        <span class="text">Dashboard</span>
+                    </a>
+                </li>
+
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'analytics') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-chart-line"></i></span>
+                        <span class="text">Analytics</span>
+                    </a>
+                </li>
+
+                <li class="has-dropdown" role="none" aria-haspopup="true">
+                    <a href="#" class="sidebar-link <?php echo ($gorgor_active === 'users') ? 'active' : ''; ?>" data-toggle="dropdown">
+                        <span class="icon"><i class="fas fa-users"></i></span>
+                        <span class="text">Users</span>
+                        <span style="margin-left:auto;"><i class="fas fa-chevron-right"></i></span>
+                    </a>
+                    <ul class="dropdown-list" role="menu">
+                        <li role="none"><a role="menuitem" href="view-users.php" class="sidebar-link">All Users</a></li>
+                        <li role="none"><a role="menuitem" href="add_user.php" class="sidebar-link">Add New</a></li>
+                        <li role="none"><a role="menuitem" href="#" class="sidebar-link">Roles</a></li>
+                    </ul>
+                </li>
+
+                <li class="has-dropdown" role="none" aria-haspopup="true">
+                    <a href="#" class="sidebar-link <?php echo ($gorgor_active === 'products') ? 'active' : ''; ?>" data-toggle="dropdown">
+                        <span class="icon"><i class="fas fa-box"></i></span>
+                        <span class="text">Products</span>
+                        <span style="margin-left:auto;"><i class="fas fa-chevron-right"></i></span>
+                    </a>
+                    <ul class="dropdown-list" role="menu">
+                        <li role="none"><a role="menuitem" href="#" class="sidebar-link">Inventory</a></li>
+                        <li role="none"><a role="menuitem" href="#" class="sidebar-link">Categories</a></li>
+                        <li role="none"><a role="menuitem" href="#" class="sidebar-link">Orders</a></li>
+                    </ul>
+                </li>
+
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'messages') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-envelope"></i></span>
+                        <span class="text">Messages</span>
+                        <?php if (!empty($gorgor_badges['messages'])): ?>
+                            <span class="gorgor-badge" aria-hidden="true"><?php echo (int)$gorgor_badges['messages']; ?></span>
+                        <?php endif; ?>
+                    </a>
+                </li>
+
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'settings') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-cog"></i></span>
+                        <span class="text">Settings</span>
+                    </a>
+                </li>
+            </ul>
+
+            <h3 class="sidebar-title">Marketing</h3>
+
+            <ul class="sidebar-nav" role="menu">
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'campaigns') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-bullhorn"></i></span>
+                        <span class="text">Campaigns</span>
+                    </a>
+                </li>
+
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'reports') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-chart-pie"></i></span>
+                        <span class="text">Reports</span>
+                    </a>
+                </li>
+
+                <li role="none">
+                    <a role="menuitem" href="#" class="sidebar-link <?php echo ($gorgor_active === 'promotions') ? 'active' : ''; ?>">
+                        <span class="icon"><i class="fas fa-tags"></i></span>
+                        <span class="text">Promotions</span>
+                    </a>
+                </li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <small>&copy; <?php echo date('Y'); ?> Gorgor Technologies Ltd.</small>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- Overlay for mobile -->
+    <div id="gorgorSidebarOverlay" class="gorgor-sidebar-overlay" tabindex="-1" aria-hidden="true"></div>
+
+</div>
+
+<script>
+/**
+ * gorgor_sidebar.js (embedded)
+ *
+ * Handles:
+ *  - Collapse/Expand toggle (preserve state in localStorage)
+ *  - Mobile open/close behavior
+ *  - Dropdown open/close in the sidebar (accordion-like)
+ *  - Tooltip behavior (showing item text on hover when collapsed)
+ *
+ * Accessibility notes:
+ *  - Buttons use aria-pressed toggles
+ *  - Menu items use role attributes
+ *
+ * This script expects the sidebar markup above.
+ */
+
+(function () {
+    'use strict';
+
+    // Elements
+    var sidebar = document.getElementById('gorgorSidebar');
+    var collapseToggle = document.getElementById('collapseToggle');
+    var collapseIcon = document.getElementById('collapseIcon');
+    var overlay = document.getElementById('gorgorSidebarOverlay');
+    var mobileClose = document.getElementById('mobileClose');
+
+    // Keys
+    var STORAGE_KEY = 'gorgor_sidebar_collapsed';
+    var STORAGE_KEY_MOBILE_OPEN = 'gorgor_sidebar_mobile_open';
+
+    // initial state read from localStorage (if any)
+    function isCollapsedInStorage() {
+        try {
+            return localStorage.getItem(STORAGE_KEY) === '1';
+        } catch (e) { return false; }
+    }
+
+    function setCollapsedInStorage(val) {
+        try {
+            localStorage.setItem(STORAGE_KEY, val ? '1' : '0');
+        } catch (e) { /* ignore */ }
+    }
+
+    function isMobileOpenInStorage() {
+        try {
+            return localStorage.getItem(STORAGE_KEY_MOBILE_OPEN) === '1';
+        } catch (e) { return false; }
+    }
+
+    function setMobileOpenInStorage(val) {
+        try {
+            localStorage.setItem(STORAGE_KEY_MOBILE_OPEN, val ? '1' : '0');
+        } catch (e) { /* ignore */ }
+    }
+
+    // apply initial collapsed state
+    function applyInitialState() {
+        var collapsed = isCollapsedInStorage();
+        if (collapsed) {
+            sidebar.classList.add('collapsed');
+            collapseToggle.setAttribute('aria-pressed', 'true');
+            collapseIcon.classList.remove('fa-chevron-left');
+            collapseIcon.classList.add('fa-chevron-right');
+            collapseToggle.querySelector('.collapse-text').textContent = 'Expand';
+        } else {
+            sidebar.classList.remove('collapsed');
+            collapseToggle.setAttribute('aria-pressed', 'false');
+            collapseIcon.classList.remove('fa-chevron-right');
+            collapseIcon.classList.add('fa-chevron-left');
+            collapseToggle.querySelector('.collapse-text').textContent = 'Collapse';
+        }
+
+        // On small screens, allow mobile open state
+        if (window.matchMedia('(max-width: 992px)').matches && isMobileOpenInStorage()) {
+            openMobile();
+        }
+    }
+
+    // Toggle collapse/expand
+    function toggleCollapse() {
+        var collapsed = sidebar.classList.toggle('collapsed');
+        setCollapsedInStorage(collapsed);
+
+        if (collapsed) {
+            collapseToggle.setAttribute('aria-pressed', 'true');
+            collapseIcon.classList.remove('fa-chevron-left');
+            collapseIcon.classList.add('fa-chevron-right');
+            collapseToggle.querySelector('.collapse-text').textContent = 'Expand';
+        } else {
+            collapseToggle.setAttribute('aria-pressed', 'false');
+            collapseIcon.classList.remove('fa-chevron-right');
+            collapseIcon.classList.add('fa-chevron-left');
+            collapseToggle.querySelector('.collapse-text').textContent = 'Collapse';
+        }
+    }
+
+    // Mobile open/close helpers
+    function openMobile() {
+        sidebar.classList.add('open');
+        overlay.classList.add('visible');
+        mobileClose.style.display = 'flex';
+        setMobileOpenInStorage(true);
+    }
+
+    function closeMobile() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('visible');
+        mobileClose.style.display = 'none';
+        setMobileOpenInStorage(false);
+    }
+
+    // Handle overlay click
+    overlay.addEventListener('click', function (e) {
+        e.preventDefault();
+        closeMobile();
+    });
+
+    // Mobile close button
+    mobileClose.addEventListener('click', function () {
+        closeMobile();
+    });
+
+    // Collapse toggle click
+    collapseToggle.addEventListener('click', function (e) {
+        e.preventDefault();
+
+        // If on small screen and sidebar currently hidden, open it
+        if (window.matchMedia('(max-width: 992px)').matches && !sidebar.classList.contains('open')) {
+            openMobile();
+            return;
+        }
+
+        toggleCollapse();
+    });
+
+    // Detect window resize to automatically remove mobile overlay state when going desktop
+    window.addEventListener('resize', function () {
+        if (!window.matchMedia('(max-width: 992px)').matches) {
+            // ensure overlay is removed
+            overlay.classList.remove('visible');
+            sidebar.classList.remove('open');
+            mobileClose.style.display = 'none';
+            setMobileOpenInStorage(false);
+        }
+    });
+
+    // Sidebar dropdowns (accordion)
+    var dropdownParents = sidebar.querySelectorAll('.has-dropdown');
+
+    dropdownParents.forEach(function (parent) {
+        var trigger = parent.querySelector('> a.sidebar-link');
+
+        trigger.addEventListener('click', function (e) {
+            e.preventDefault();
+
+            // Toggle open on click
+            var isOpen = parent.classList.toggle('open');
+
+            // Close other dropdowns (accordion behavior)
+            dropdownParents.forEach(function (p) {
+                if (p !== parent) {
+                    p.classList.remove('open');
+                }
+            });
+        });
+    });
+
+    // Tooltips for collapsed state: show small tooltip when hovering icons
+    var sidebarLinks = sidebar.querySelectorAll('a.sidebar-link');
+
+    sidebarLinks.forEach(function (link) {
+        link.addEventListener('mouseenter', function (e) {
+            if (!sidebar.classList.contains('collapsed')) return;
+
+            // create tooltip node
+            var text = link.querySelector('.text') ? link.querySelector('.text').textContent : '';
+            if (!text) return;
+
+            var tooltip = document.createElement('div');
+            tooltip.className = 'gorgor-tooltip';
+            tooltip.textContent = text;
+            // Append to wrapper to avoid clipping
+            document.querySelector('.gorgor-sidebar-wrapper').appendChild(tooltip);
+
+            // position the tooltip vertically relative to link
+            var r = link.getBoundingClientRect();
+            var wrapR = document.querySelector('.gorgor-sidebar-wrapper').getBoundingClientRect();
+            tooltip.style.top = (r.top - wrapR.top + (r.height / 2)) + 'px';
+
+            // When leaving, remove
+            link.addEventListener('mouseleave', function cleanup() {
+                if (tooltip && tooltip.parentNode) {
+                    tooltip.parentNode.removeChild(tooltip);
+                }
+                link.removeEventListener('mouseleave', cleanup);
+            }, { once: true });
+        });
+    });
+
+    // Keyboard shortcut: press "Ctrl+/" to toggle sidebar (handy)
+    window.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+            e.preventDefault();
+            // If mobile, open mobile; otherwise toggle collapse
+            if (window.matchMedia('(max-width: 992px)').matches) {
+                if (sidebar.classList.contains('open')) {
+                    closeMobile();
+                } else {
+                    openMobile();
+                }
+            } else {
+                toggleCollapse();
+            }
+        }
+    });
+
+    // Close sidebar on Escape when mobile open
+    window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && sidebar.classList.contains('open')) {
+            closeMobile();
+        }
+    });
+
+    // Detect clicks outside sidebar to close mobile
+    document.addEventListener('click', function (e) {
+        var inside = sidebar.contains(e.target);
+        var isMobile = window.matchMedia('(max-width: 992px)').matches;
+        if (!inside && isMobile && sidebar.classList.contains('open')) {
+            closeMobile();
+        }
+    });
+
+    // Run initial state application
+    applyInitialState();
+
+    // Expose a small API for other scripts to open/close the sidebar programmatically
+    window.GorgorSidebar = {
+        openMobile: openMobile,
+        closeMobile: closeMobile,
+        toggleCollapse: toggleCollapse,
+        isCollapsed: function() { return sidebar.classList.contains('collapsed'); }
+    };
+
+})();
+</script>
+
+</body>
+</html>
